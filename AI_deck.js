@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         RoyaleAPI — Auto cards then last 40 battles -> copy final template with Copy button
 // @namespace    https://royaleapi.com/
-// @version      2.1
+// @version      2.2
 // @description  Collect player cards and recent battles, then provide a "Copy" button to copy final template to clipboard (Safari-friendly). Minimal comments in English.
 // @author       Merged by assistant
 // @match        https://royaleapi.com/*
@@ -13,12 +13,15 @@
     'use strict';
 
     // Config
-    const PLAYER_TAG = 'YOUR TAG';
+    const PLAYER_TAG = 'Your TAG';
     const BASE = location.origin || 'https://royaleapi.com';
     const CARDS_PATH = `/player/${PLAYER_TAG}/cards/levels`;
     const BATTLES_PATH = `/player/${PLAYER_TAG}/battles`;
     const CARDS_URL = BASE + CARDS_PATH;
     const BATTLES_URL = BASE + BATTLES_PATH;
+
+    // New: minimal card level to record (default 10). Cards below this level will NOT be recorded.
+    const MIN_CARD_LEVEL = 10;
 
     // Keys
     const KEY_CARDS_TEXT = 'r_merged_cards_v1';
@@ -112,12 +115,15 @@
                 const name = (nameEl && safeText(nameEl)) || (a.querySelector('img')?.alt || '').trim() || 'Unknown';
                 const levelText = (a.querySelector('.player_cards__card_level')?.innerText || a.querySelector('.card-level')?.innerText || '').trim();
                 const level = (levelText.match(/\d+/) || [''])[0] || '';
+                const levelNum = parseInt(level, 10) || 0;
+                // Skip cards below MIN_CARD_LEVEL
+                if (levelNum < MIN_CARD_LEVEL) continue;
                 const elixir = a.getAttribute('data-elixir') || (a.querySelector('.player_cards__crelixir')?.innerText || a.querySelector('.elixir')?.innerText || '').trim();
                 const id = a.id || (a.getAttribute('href') || '');
                 let evolution = '';
                 const evMatch = (id || '').match(/-ev\d+/i);
                 if (evMatch) evolution = evMatch[0].replace(/^-/, '');
-                let line = `${name} — Lvl ${level || 'n/a'} — Elixir: ${elixir || 'n/a'}`;
+                let line = `${name} — Lvl ${levelNum || 'n/a'} — Elixir: ${elixir || 'n/a'}`;
                 if (evolution) line += ` — Evolution: ${evolution}`;
                 lines.push(line);
             } catch (e) { /* ignore */ }
@@ -448,7 +454,7 @@
 
                 const statsContainer = pb.querySelector('.stats.item') || pb.querySelector('.stats') || pb;
                 const avgElixir = statByIconIn(statsContainer, 'icon-average-elixir') || '';
-                const shortestCycle = statByIconIn(statsContainer, 'icon-shortest-cycle') || '';
+                const shortestCycle = statByIconIn(statsContainer, 'icon-shortest-cycle') || statByIconIn(statsContainer, 'icon-shortest-cycle') || '';
                 const elixirLeaked = statByIconIn(statsContainer, 'icon-elixir-leaked') || '';
 
                 let hpTextLocal = '';
@@ -717,66 +723,81 @@
             if (!finalText || (stage !== 'done' && stage !== 'ready_to_copy')) return;
             if (document.getElementById('__ra_copy_btn')) return;
 
+            // Add styles only once
+            if (!document.getElementById('__ra_copy_styles')) {
+                const style = document.createElement('style');
+                style.id = '__ra_copy_styles';
+                style.textContent = `
+#__ra_copy_container { position: fixed; right: 16px; bottom: 16px; z-index: 999999; font-family: Arial, sans-serif; display:flex; gap:10px; align-items:center; pointer-events:auto; }
+#__ra_copy_btn { padding: 12px 16px; border-radius: 12px; border: none; background: linear-gradient(135deg,#ff7a18 0%,#af002d 100%); color:#fff; font-weight:700; font-size:14px; cursor:pointer; box-shadow: 0 8px 24px rgba(175,0,45,0.28), 0 2px 6px rgba(0,0,0,0.12); display:inline-flex; align-items:center; gap:8px; transform-origin: center; transition: transform 160ms ease, box-shadow 160ms; }
+#__ra_copy_btn svg { width:16px; height:16px; display:inline-block; vertical-align:middle; }
+#__ra_copy_btn:hover { transform: translateY(-3px) scale(1.02); box-shadow: 0 12px 30px rgba(175,0,45,0.32), 0 4px 10px rgba(0,0,0,0.14); }
+#__ra_copy_status { font-size:13px; color:#111; min-width:80px; text-align:center; background: rgba(255,255,255,0.95); padding:8px 10px; border-radius:10px; box-shadow: 0 4px 12px rgba(0,0,0,0.06); }
+@keyframes __ra_pulse { 0% { box-shadow: 0 8px 24px rgba(175,0,45,0.18); } 50% { box-shadow: 0 12px 30px rgba(175,0,45,0.28); } 100% { box-shadow: 0 8px 24px rgba(175,0,45,0.18); } }
+#__ra_copy_btn.__pulse { animation: __ra_pulse 1800ms infinite; }
+#__ra_copy_container.fade-out { transition: opacity 380ms ease, transform 380ms ease; opacity:0; transform: scale(0.92); pointer-events:none; }
+`;
+                document.head.appendChild(style);
+            }
+
             const container = document.createElement('div');
             container.id = '__ra_copy_container';
-            container.style.position = 'fixed';
-            container.style.right = '16px';
-            container.style.bottom = '16px';
-            container.style.zIndex = '999999';
-            container.style.fontFamily = 'Arial, sans-serif';
-            container.style.display = 'flex';
-            container.style.gap = '8px';
-            container.style.alignItems = 'center';
 
             const btn = document.createElement('button');
             btn.id = '__ra_copy_btn';
-            btn.textContent = 'Copy';
+            // Add SVG clipboard icon
+            btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M9 2h6a1 1 0 0 1 1 1v1h-8V3a1 1 0 0 1 1-1z" fill="#ffffff" opacity="0.12"/><path d="M7 4h10v16a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1V4z" fill="#fff" opacity="0.06"/><path d="M16 2H8a2 2 0 0 0-2 2v16a3 3 0 0 0 3 3h6a3 3 0 0 0 3-3V4a2 2 0 0 0-2-2z" fill="#fff" opacity="0.04"/><path d="M9 7h6v2H9z" fill="white"/><path d="M8 11h8v1H8z" fill="white" opacity="0.9"/></svg><span>Copy template</span>`;
+
             btn.title = 'Copy final template';
-            btn.style.padding = '8px 12px';
-            btn.style.borderRadius = '8px';
-            btn.style.border = '1px solid rgba(0,0,0,0.2)';
-            btn.style.background = 'white';
-            btn.style.cursor = 'pointer';
-            btn.style.boxShadow = '0 2px 6px rgba(0,0,0,0.12)';
-            btn.style.fontSize = '13px';
+            btn.setAttribute('aria-label', 'Copy final template');
+            btn.classList.add('__pulse');
 
             const status = document.createElement('div');
             status.id = '__ra_copy_status';
             status.style.fontSize = '13px';
             status.style.color = '#222';
-            status.style.minWidth = '72px';
             status.textContent = 'Ready';
 
             btn.addEventListener('click', async (ev) => {
                 ev.preventDefault();
+                if (btn.disabled) return;
                 btn.disabled = true;
+                btn.classList.remove('__pulse');
                 status.textContent = 'Copying...';
                 try {
                     await copyToClipboardSafariSafe(finalText);
                     status.textContent = 'Copied';
+                    // clear transient session data on success
                     sessionRemove(KEY_BATTLES_DATA);
                     sessionRemove(KEY_RESUME_META);
-                    // optionally clear final text after success
+                    // Optional: remove final text from session to avoid re-copying stale data
                     // sessionRemove(KEY_FINAL_TEXT);
+
+                    // animate disappearance
+                    setTimeout(() => {
+                        try {
+                            container.classList.add('fade-out');
+                            setTimeout(() => { if (container && container.parentElement) container.parentElement.removeChild(container); }, 420);
+                        } catch (e) { try { if (container && container.parentElement) container.parentElement.removeChild(container); } catch (ee) {} }
+                    }, 280);
                 } catch (err) {
                     console.error('Copy failed', err);
                     status.textContent = 'Failed';
-                    // Show full text in a prompt as last resort
+                    btn.classList.add('__pulse');
+                    btn.disabled = false;
+                    // Show full text in a prompt as last resort (first 10000 chars)
                     try {
                         window.prompt('Copy the text below (Ctrl/Cmd+C):', finalText.slice(0, 10000));
                     } catch (e) {}
-                } finally {
-                    setTimeout(() => {
-                        btn.disabled = false;
-                        // keep status for a while
-                        setTimeout(() => { if (status) status.textContent = 'Ready'; }, 1200);
-                    }, 300);
                 }
             });
 
             container.appendChild(btn);
             container.appendChild(status);
             document.body.appendChild(container);
+
+            // accessibility: focus button so user sees it
+            try { btn.focus({preventScroll:true}); } catch (e) {}
         } catch (e) { console.error(e); }
     }
 
@@ -815,10 +836,25 @@
                     const cardsText = sessionGet(KEY_CARDS_TEXT) || '';
                     const analysisSection = buildLossesAnalysisSection(finalStored);
                     const finalTemplate =
-`Analyze everything and give me the most strongest deck I can make to keep pushing my trophies. Return the deck as card names, each name on a new line (even if the card has evolution, put it first, but don't type “Evolution”)
+`I will paste two text blocks titled "my cards:" and "my battles (last N):". Use only those blocks to recommend one strong ladder deck to help me keep pushing trophies.
 
+Prefer cards that I already own. If you suggest a card I don’t have, give two in-pool substitutes and explain the tradeoffs.
 
-ATTENTION! Do not use the patterns you were trained on, do it unique for my case. Also make a short explanation of your choice.
+Output format (simple and human-friendly):
+• 8 card names — each on its own line (no numbering, no extra formatting, also don’t type in the word “evolution” if there is, just put the card with evolution first). Start with the main win condition, then supporting and defensive cards in any natural order.
+• Then write:
+  Average elixir: <number>
+  Archetype: <short label>
+  Gameplan: (2–3 sentences explaining how to play the deck)
+  Key counters and how to handle them: (2 short examples)
+  Optional swaps: (if I lack a card — Card → Substitute1, Substitute2)
+  Upgrade priorities: (3 cards that would most improve results — with short reasons)
+
+General rules:
+- Build the deck realistically for my current ladder level.
+- Focus on consistency and synergy, not gimmicks or purely meta copies.
+- If possible, adapt the deck to counter patterns seen in my recent battle logs.
+- Be concise, clear, and practical. Use plain English.
 
 my cards:
 
@@ -852,10 +888,25 @@ ${analysisSection}`;
                     const cardsText = sessionGet(KEY_CARDS_TEXT) || '';
                     const analysisSection = buildLossesAnalysisSection(finalStored);
                     const finalTemplate =
-`Analyze everything and give me the most strongest deck I can make to keep pushing my trophies. Return the deck as card names, each name on a new line (even if the card has evolution, put it first, but don't type “Evolution”)
+`I will paste two text blocks titled "my cards:" and "my battles (last N):". Use only those blocks to recommend one strong ladder deck to help me keep pushing trophies.
 
+Prefer cards that I already own. If you suggest a card I don’t have, give two in-pool substitutes and explain the tradeoffs.
 
-ATTENTION! Do not use the patterns you were trained on, do it unique for my case. Also make a short explanation of your choice.
+Output format (simple and human-friendly):
+• 8 card names — each on its own line (no numbering, no extra formatting, also don’t type in the word “evolution” if there is, just put the card with evolution first). Start with the main win condition, then supporting and defensive cards in any natural order.
+• Then write:
+  Average elixir: <number>
+  Archetype: <short label>
+  Gameplan: (2–3 sentences explaining how to play the deck)
+  Key counters and how to handle them: (2 short examples)
+  Optional swaps: (if I lack a card — Card → Substitute1, Substitute2)
+  Upgrade priorities: (3 cards that would most improve results — with short reasons)
+
+General rules:
+- Build the deck realistically for my current ladder level.
+- Focus on consistency and synergy, not gimmicks or purely meta copies.
+- If possible, adapt the deck to counter patterns seen in my recent battle logs.
+- Be concise, clear, and practical. Use plain English.
 
 my cards:
 
@@ -899,5 +950,5 @@ ${analysisSection}`;
     // Also try to insert button when page fully loaded in case final text already present
     window.addEventListener('load', () => { setTimeout(insertCopyButtonIfReady, 350); });
 
-    log('RA-AUTO script loaded. Current path:', location.pathname);
+    log('RA-AUTO script loaded. Current path:', location.pathname, 'MIN_CARD_LEVEL=', MIN_CARD_LEVEL);
 })();
