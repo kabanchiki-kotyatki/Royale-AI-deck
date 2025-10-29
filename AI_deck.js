@@ -13,7 +13,7 @@
     'use strict';
 
     // Config
-    const PLAYER_TAG = 'Your TAG';
+    const PLAYER_TAG = '20YL2902LV';
     const BASE = location.origin || 'https://royaleapi.com';
     const CARDS_PATH = `/player/${PLAYER_TAG}/cards/levels`;
     const BATTLES_PATH = `/player/${PLAYER_TAG}/battles`;
@@ -30,7 +30,7 @@
     const KEY_AUTOFLOW_STAGE = 'r_autoflow_stage_v1';
     const KEY_FINAL_TEXT = 'r_copy_final_text_v1';
 
-    const MAX_BATTLES_TO_KEEP = 40;
+    const MAX_BATTLES_TO_KEEP = 30;
 
     // Utils
     function log(...a) { console.log('[RA-AUTO]', ...a); }
@@ -665,55 +665,62 @@
         };
     }
 
-    // Losses analysis builder
-    function buildLossesAnalysisSection(battlesArray) {
-        try {
-            if (!Array.isArray(battlesArray) || !battlesArray.length) {
-                return 'Losses analysis: No battles available to analyze.';
-            }
-            const totalBattles = Math.min(battlesArray.length, MAX_BATTLES_TO_KEEP);
-            const recent = battlesArray.slice(0, totalBattles);
-            const losses = recent.filter(b => !!b.meLost);
-            const lossCount = losses.length;
-            if (lossCount === 0) return `Losses analysis: No losses in the last ${totalBattles} battles.`;
-            const counts = new Map();
-            for (const L of losses) {
-                const oppDeck = Array.isArray(L.opponentDeck) ? L.opponentDeck : [];
-                const uniqueThisLoss = new Set(oppDeck.map(c => stripCardName(c)));
-                for (const cardName of uniqueThisLoss) {
-                    if (!cardName) continue;
-                    counts.set(cardName, (counts.get(cardName) || 0) + 1);
-                }
-            }
-            const arr = Array.from(counts.entries()).map(([card, cnt]) => {
-                const perc = Math.round((cnt / lossCount) * 100);
-                return { card, cnt, perc };
-            });
-            if (!arr.length) return `Losses analysis: ${lossCount} losses in the last ${totalBattles} battles, but opponent decks could not be parsed.`;
-            arr.sort((a,b) => { if (b.cnt !== a.cnt) return b.cnt - a.cnt; if (b.perc !== a.perc) return b.perc - a.perc; return a.card.localeCompare(b.card); });
-            const majority = arr.filter(x => x.perc > 50);
-            const lines = [];
-            lines.push(`Losses analysis (last ${totalBattles} battles — ${lossCount} losses):`);
-            if (majority.length) {
-                lines.push('Opponent cards that appeared in MORE THAN 50% of losses (sorted by frequency):');
-                for (let i = 0; i < majority.length; i++) {
-                    const m = majority[i];
-                    lines.push(`${i+1}) ${m.card} — ${m.perc}% - ${m.cnt} times`);
-                }
-            } else {
-                lines.push('Top opponent cards in losses (sorted by frequency):');
-                const top = arr.slice(0, 10);
-                for (let i = 0; i < top.length; i++) {
-                    const t = top[i];
-                    lines.push(`${i+1}) ${t.card} — ${t.perc}% - ${t.cnt} times`);
-                }
-            }
-            return lines.join('\n');
-        } catch (e) {
-            console.error(e);
-            return 'Losses analysis: error while analyzing.';
+// Losses analysis builder (updated to analyze across matches and show top = half of matches)
+function buildLossesAnalysisSection(battlesArray) {
+    try {
+        if (!Array.isArray(battlesArray) || !battlesArray.length) {
+            return 'Losses analysis: No battles available to analyze.';
         }
+
+        const totalBattles = Math.min(battlesArray.length, MAX_BATTLES_TO_KEEP);
+        const recent = battlesArray.slice(0, totalBattles);
+
+        // Шаг 1: считаем появления карт по ВСЕМ матчам (по одному засчитанному появлению карты в матче)
+        const counts = new Map();
+        for (const match of recent) {
+            const oppDeck = Array.isArray(match.opponentDeck) ? match.opponentDeck : [];
+            const uniqueThisMatch = new Set(oppDeck.map(c => stripCardName(c)));
+            for (const cardName of uniqueThisMatch) {
+                if (!cardName) continue;
+                counts.set(cardName, (counts.get(cardName) || 0) + 1);
+            }
+        }
+
+        const matchCount = recent.length;
+        if (!counts.size) {
+            return `Losses analysis: no opponent cards parsed from the last ${matchCount} battles.`;
+        }
+
+        // Шаг 2: формируем массив с процентами относительно ВСЕХ матчей
+        const arr = Array.from(counts.entries()).map(([card, cnt]) => {
+            const perc = Math.round((cnt / matchCount) * 100);
+            return { card, cnt, perc };
+        });
+
+        // Сортируем по частоте, затем по проценту, затем по имени
+        arr.sort((a, b) => {
+            if (b.cnt !== a.cnt) return b.cnt - a.cnt;
+            if (b.perc !== a.perc) return b.perc - a.perc;
+            return a.card.localeCompare(b.card);
+        });
+
+        // Шаг 3: вычисляем размер топа = половина матчей (округляем вверх), но не больше длины массива
+        const topSize = Math.min(arr.length, Math.max(1, Math.ceil(matchCount / 2)));
+
+        const lines = [];
+        lines.push(`Opponent cards analysis (last ${matchCount} battles):`);
+        lines.push(`Top ${topSize} cards (half of the matches, rounded up):`);
+        for (let i = 0; i < topSize; i++) {
+            const t = arr[i];
+            lines.push(`${i+1}) ${t.card} — ${t.perc}% (${t.cnt} / ${matchCount} matches)`);
+        }
+
+        return lines.join('\n');
+    } catch (e) {
+        console.error(e);
+        return 'Losses analysis: error while analyzing.';
     }
+}
 
     // Insert copy button into page if final text present
     function insertCopyButtonIfReady() {
@@ -836,25 +843,7 @@
                     const cardsText = sessionGet(KEY_CARDS_TEXT) || '';
                     const analysisSection = buildLossesAnalysisSection(finalStored);
                     const finalTemplate =
-`I will paste two text blocks titled "my cards:" and "my battles (last N):". Use only those blocks to recommend one strong ladder deck to help me keep pushing trophies.
-
-Prefer cards that I already own. If you suggest a card I don’t have, give two in-pool substitutes and explain the tradeoffs.
-
-Output format (simple and human-friendly):
-• 8 card names — each on its own line (no numbering, no extra formatting, also don’t type in the word “evolution” if there is, just put the card with evolution first). Start with the main win condition, then supporting and defensive cards in any natural order.
-• Then write:
-  Average elixir: <number>
-  Archetype: <short label>
-  Gameplan: (2–3 sentences explaining how to play the deck)
-  Key counters and how to handle them: (2 short examples)
-  Optional swaps: (if I lack a card — Card → Substitute1, Substitute2)
-  Upgrade priorities: (3 cards that would most improve results — with short reasons)
-
-General rules:
-- Build the deck realistically for my current ladder level.
-- Focus on consistency and synergy, not gimmicks or purely meta copies.
-- If possible, adapt the deck to counter patterns seen in my recent battle logs.
-- Be concise, clear, and practical. Use plain English.
+`пожалуйста, проанализируй логи и найди способ как максимально эффективно изменить колоду чтобы перестать проигрывать, когда будешь отправлять колоду - сделай название каждой карты на каждую строку и без нумерации, подробные логи ниже ⬇️ 
 
 my cards:
 
@@ -888,25 +877,7 @@ ${analysisSection}`;
                     const cardsText = sessionGet(KEY_CARDS_TEXT) || '';
                     const analysisSection = buildLossesAnalysisSection(finalStored);
                     const finalTemplate =
-`I will paste two text blocks titled "my cards:" and "my battles (last N):". Use only those blocks to recommend one strong ladder deck to help me keep pushing trophies.
-
-Prefer cards that I already own. If you suggest a card I don’t have, give two in-pool substitutes and explain the tradeoffs.
-
-Output format (simple and human-friendly):
-• 8 card names — each on its own line (no numbering, no extra formatting, also don’t type in the word “evolution” if there is, just put the card with evolution first). Start with the main win condition, then supporting and defensive cards in any natural order.
-• Then write:
-  Average elixir: <number>
-  Archetype: <short label>
-  Gameplan: (2–3 sentences explaining how to play the deck)
-  Key counters and how to handle them: (2 short examples)
-  Optional swaps: (if I lack a card — Card → Substitute1, Substitute2)
-  Upgrade priorities: (3 cards that would most improve results — with short reasons)
-
-General rules:
-- Build the deck realistically for my current ladder level.
-- Focus on consistency and synergy, not gimmicks or purely meta copies.
-- If possible, adapt the deck to counter patterns seen in my recent battle logs.
-- Be concise, clear, and practical. Use plain English.
+`пожалуйста, проанализируй логи и найди способ как максимально эффективно изменить колоду чтобы перестать проигрывать, когда будешь отправлять колоду - сделай название каждой карты на каждую строку и без нумерации, подробные логи ниже ⬇️ 
 
 my cards:
 
