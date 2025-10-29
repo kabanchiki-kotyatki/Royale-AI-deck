@@ -843,8 +843,9 @@ function buildLossesAnalysisSection(battlesArray) {
                     const cardsText = sessionGet(KEY_CARDS_TEXT) || '';
                     const analysisSection = buildLossesAnalysisSection(finalStored);
                     const finalTemplate =
-`пожалуйста, проанализируй логи и найди способ как максимально эффективно изменить колоду чтобы перестать проигрывать, когда будешь отправлять колоду - сделай название каждой карты на каждую строку и без нумерации, подробные логи ниже ⬇️ 
-
+`Please analyze the logs and find the most effective way to adjust the deck to stop losing.
+When you send the deck, list each card name on a separate line without numbering.
+Detailed logs are below ⬇️
 my cards:
 
 ${cardsText || '*no card data*'}
@@ -877,8 +878,9 @@ ${analysisSection}`;
                     const cardsText = sessionGet(KEY_CARDS_TEXT) || '';
                     const analysisSection = buildLossesAnalysisSection(finalStored);
                     const finalTemplate =
-`пожалуйста, проанализируй логи и найди способ как максимально эффективно изменить колоду чтобы перестать проигрывать, когда будешь отправлять колоду - сделай название каждой карты на каждую строку и без нумерации, подробные логи ниже ⬇️ 
-
+`Please analyze the logs and find the most effective way to adjust the deck to stop losing.
+When you send the deck, list each card name on a separate line without numbering.
+Detailed logs are below ⬇️
 my cards:
 
 ${cardsText || '*no card data*'}
